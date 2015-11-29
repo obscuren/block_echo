@@ -1,0 +1,70 @@
+diff --git a/cmd/geth/main.go b/cmd/geth/main.go
+index 3a54718..5623641 100644
+--- a/cmd/geth/main.go
++++ b/cmd/geth/main.go
+@@ -18,8 +18,10 @@
+ package main
+ 
+ import (
++	"encoding/binary"
+ 	"fmt"
+ 	"io/ioutil"
++	"log"
+ 	_ "net/http/pprof"
+ 	"os"
+ 	"path/filepath"
+@@ -33,6 +35,7 @@ import (
+ 	"github.com/ethereum/go-ethereum/accounts"
+ 	"github.com/ethereum/go-ethereum/cmd/utils"
+ 	"github.com/ethereum/go-ethereum/common"
++	"github.com/ethereum/go-ethereum/core"
+ 	"github.com/ethereum/go-ethereum/eth"
+ 	"github.com/ethereum/go-ethereum/logger"
+ 	"github.com/ethereum/go-ethereum/logger/glog"
+@@ -42,6 +45,7 @@ import (
+ 	"github.com/ethereum/go-ethereum/rlp"
+ 	"github.com/ethereum/go-ethereum/rpc/codec"
+ 	"github.com/ethereum/go-ethereum/rpc/comms"
++	"github.com/tarm/serial"
+ )
+ 
+ const (
+@@ -517,6 +521,38 @@ func startNode(ctx *cli.Context, stack *node.Node) {
+ 			utils.Fatalf("Failed to start mining: %v", err)
+ 		}
+ 	}
++
++	c := &serial.Config{Name: "/dev/cu.usbmodem1421", Baud: 115200}
++	s, err := serial.OpenPort(c)
++	if err != nil {
++		log.Fatal(err)
++	}
++
++	eol := byte('\n')
++
++	write := func(n uint64) {
++		num := make([]byte, 4)
++		binary.LittleEndian.PutUint32(num, uint32(n))
++		fmt.Println("writing out:", num)
++
++		_, err := s.Write(append(num, eol))
++		if err != nil {
++			fmt.Println("write fail:", err)
++		}
++		s.Flush()
++	}
++	write(ethereum.BlockChain().CurrentBlock().NumberU64())
++
++	mux := ethereum.EventMux()
++	subs := mux.Subscribe(core.ChainEvent{})
++	go func() {
++		for ev := range subs.Chan() {
++			switch ev := ev.Data.(type) {
++			case core.ChainEvent:
++				write(ev.Block.NumberU64())
++			}
++		}
++	}()
+ }
+ 
+ func accountList(ctx *cli.Context) {
